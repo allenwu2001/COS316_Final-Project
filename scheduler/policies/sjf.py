@@ -5,6 +5,7 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import copy
 import random
 
+import job_id_pair
 from policy import Policy, PolicyWithPacking
 
 class SJFPolicy(Policy):
@@ -19,6 +20,60 @@ class SJFPolicy(Policy):
                 self._rng.seed(seed)
         elif mode == 'packing':
             self._packing_threshold = packing_threshold
+
+    def _pack(self, queue, throughputs, scale_factors):
+        while len(queue) > 0:
+            # Only make a packing decision if combined normalized
+            # throughput would provide a significant gain.
+            max_packed_throughput = self._packing_threshold
+            job_id_to_pack_with = None
+            job_id_to_schedule =x queue.pop(0)
+
+            # Find the already scheduled job with which the next job on
+            # the queue will pack best with based on SJF criteria.
+            for scheduled_job_id in self._allocation:
+                assert scheduled_job_id != job_id_to_schedule
+                assert scheduled_job_id in throughputs
+                if scheduled_job_id.is_pair():
+                    continue
+                if (scale_factors[scheduled_job_id] !=
+                        scale_factors[job_id_to_schedule]):
+                    continue
+                if scale_factors[scheduled_job_id] <= 0:
+                    continue
+
+                # Additional SJF-specific condition: prioritize jobs with shorter expected processing times.
+                if scale_factors[scheduled_job_id] < scale_factors[job_id_to_schedule]:
+                    continue
+
+                worker_type = self._allocation[scheduled_job_id]
+                merged_job_id = \
+                    job_id_pair.JobIdPair(scheduled_job_id[0], job_id_to_schedule[0])
+                packed_throughput = throughputs[merged_job_id][worker_type]
+                normalized_packed_throughput = 0.0
+                for i, single_job_id in enumerate(merged_job_id.singletons()):
+                    if packed_throughput[i] <= 0.0:
+                        continue
+                    isolated_throughput = throughputs[single_job_id][worker_type]
+                    normalized_packed_throughput += \
+                        packed_throughput[i] / isolated_throughput
+
+                # Check if the combined normalized throughput is above the threshold.
+                if normalized_packed_throughput > max_packed_throughput:
+                    max_packed_throughput = normalized_packed_throughput
+                    job_id_to_pack_with = scheduled_job_id
+
+            if job_id_to_pack_with is None:
+                # Terminate when we cannot find a job to pack with.
+                break
+            else:
+                # Transfer the allocation for the single job to the
+                # packed job.
+                merged_job_id = \
+                    job_id_pair.JobIdPair(job_id_to_pack_with[0], job_id_to_schedule[0])
+                worker_type = self._allocation[job_id_to_pack_with]
+                del self._allocation[job_id_to_pack_with]
+                self._allocation[merged_job_id] = worker_type
 
     def get_allocation(self, throughputs, scale_factors, cluster_spec):
         available_workers = copy.deepcopy(cluster_spec)
@@ -119,3 +174,19 @@ class SJFPolicy(Policy):
             final_allocation[job_id][worker_type] = 1.0
 
         return final_allocation
+
+class SJFPolicyWithPerf(Policy):
+    def __init__(self):
+        self._name = 'SJF_Perf'
+        self._policy = SJFPolicy(mode='perf')
+
+    def get_allocation(self, throughputs, scale_factors, cluster_spec):
+        return self._policy.get_allocation(throughputs, scale_factors, cluster_spec)
+
+class SJFPolicyWithPacking(PolicyWithPacking):
+    def __init__(self, packing_threshold=1.5):
+        self._name = 'SJF_Packing'
+        self._policy = SJFPolicy(mode='packing', packing_threshold=packing_threshold)
+
+    def get_allocation(self, throughputs, scale_factors, cluster_spec):
+        return self._policy.get_allocation(throughputs, scale_factors, cluster_spec)
