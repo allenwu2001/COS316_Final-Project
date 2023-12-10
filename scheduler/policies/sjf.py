@@ -1,11 +1,28 @@
+"""
+SJFPolicy module implements the Shortest Job First (SJF) scheduling policy.
+
+Usage:
+    from sjf_policy import SJFPolicy, SJFPolicyWithPerf, SJFPolicyWithPacking
+
+    # Example usage of SJFPolicy
+    sjf_policy = SJFPolicy()
+    allocation = sjf_policy.get_allocation(throughputs, scale_factors, cluster_spec)
+
+    # Example usage of SJFPolicyWithPerf
+    sjf_policy_perf = SJFPolicyWithPerf()
+    allocation_perf = sjf_policy_perf.get_allocation(throughputs, scale_factors, cluster_spec)
+
+    # Example usage of SJFPolicyWithPacking
+    sjf_policy_packing = SJFPolicyWithPacking(packing_threshold=1.5)
+    allocation_packing = sjf_policy_packing.get_allocation(throughputs, scale_factors, cluster_spec)
+"""
+
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-
 import copy
 import random
-
 import job_id_pair
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 from policy import Policy, PolicyWithPacking
 
 class SJFPolicy(Policy):
@@ -27,41 +44,38 @@ class SJFPolicy(Policy):
             # throughput would provide a significant gain.
             max_packed_throughput = self._packing_threshold
             job_id_to_pack_with = None
-            job_id_to_schedule =x queue.pop(0)
+            job_id_to_schedule = queue.pop(0)
 
-            # Find the already scheduled job with which the next job on
-            # the queue will pack best with based on SJF criteria.
-            for scheduled_job_id in self._allocation:
+            # Modify this part of the code in the _pack() function
+            for scheduled_job_id, worker_type in self._allocation.items():
                 assert scheduled_job_id != job_id_to_schedule
                 assert scheduled_job_id in throughputs
                 if scheduled_job_id.is_pair():
                     continue
-                if (scale_factors[scheduled_job_id] !=
-                        scale_factors[job_id_to_schedule]):
+                if scale_factors[scheduled_job_id] != scale_factors[job_id_to_schedule]:
                     continue
                 if scale_factors[scheduled_job_id] <= 0:
                     continue
 
-                # Additional SJF-specific condition: prioritize jobs with shorter expected processing times.
+                # Additional SJF-specific condition: prioritize jobs with shorter expected 
+                # processing times.
                 if scale_factors[scheduled_job_id] < scale_factors[job_id_to_schedule]:
                     continue
 
-                worker_type = self._allocation[scheduled_job_id]
-                merged_job_id = \
-                    job_id_pair.JobIdPair(scheduled_job_id[0], job_id_to_schedule[0])
+                merged_job_id = job_id_pair.JobIdPair(scheduled_job_id[0], job_id_to_schedule[0])
                 packed_throughput = throughputs[merged_job_id][worker_type]
                 normalized_packed_throughput = 0.0
                 for i, single_job_id in enumerate(merged_job_id.singletons()):
                     if packed_throughput[i] <= 0.0:
                         continue
                     isolated_throughput = throughputs[single_job_id][worker_type]
-                    normalized_packed_throughput += \
-                        packed_throughput[i] / isolated_throughput
+                    normalized_packed_throughput += packed_throughput[i] / isolated_throughput
 
                 # Check if the combined normalized throughput is above the threshold.
                 if normalized_packed_throughput > max_packed_throughput:
                     max_packed_throughput = normalized_packed_throughput
                     job_id_to_pack_with = scheduled_job_id
+
 
             if job_id_to_pack_with is None:
                 # Terminate when we cannot find a job to pack with.
@@ -76,6 +90,21 @@ class SJFPolicy(Policy):
                 self._allocation[merged_job_id] = worker_type
 
     def get_allocation(self, throughputs, scale_factors, cluster_spec):
+        """
+        Determine the allocation of resources based on the Shortest Job First (SJF) policy.
+
+        Args:
+            throughputs (dict): Dictionary containing throughput information for each job.
+            scale_factors (dict): Dictionary containing scale factors for each job.
+            cluster_spec (dict): Dictionary representing the available resources in the cluster.
+
+        Returns:
+            dict: A dictionary representing the final allocation of resources for each job.
+
+        Note:
+            This method implements the Shortest Job First (SJF) policy to determine the allocation
+            of resources for jobs based on their expected processing times.
+        """
         available_workers = copy.deepcopy(cluster_spec)
         queue = []
 
@@ -177,16 +206,63 @@ class SJFPolicy(Policy):
 
 class SJFPolicyWithPerf(Policy):
     def __init__(self):
+        """
+        Wrapper class for SJF policy with performance-aware mode.
+
+        Attributes:
+            _name (str): The name of the policy.
+            _policy (SJFPolicy): The underlying SJF policy with performance-aware mode.
+        """
         self._name = 'SJF_Perf'
         self._policy = SJFPolicy(mode='perf')
 
     def get_allocation(self, throughputs, scale_factors, cluster_spec):
+        """
+        Get resource allocation using the SJF policy with performance-aware mode.
+
+        Args:
+            throughputs (dict): Dictionary containing throughput information for each job.
+            scale_factors (dict): Dictionary containing scale factors for each job.
+            cluster_spec (dict): Dictionary representing the available resources in the cluster.
+
+        Returns:
+            dict: A dictionary representing the final allocation of resources for each job.
+
+        Note:
+            This method delegates the allocation process to the underlying SJF policy with
+            performance-aware mode.
+        """
         return self._policy.get_allocation(throughputs, scale_factors, cluster_spec)
 
 class SJFPolicyWithPacking(PolicyWithPacking):
     def __init__(self, packing_threshold=1.5):
+        """
+        Wrapper class for SJF policy with packing mode.
+
+        Args:
+            packing_threshold (float): Threshold for job packing in 'packing' mode.
+
+        Attributes:
+            _name (str): The name of the policy.
+            _policy (SJFPolicy): The underlying SJF policy with packing mode.
+        """
         self._name = 'SJF_Packing'
         self._policy = SJFPolicy(mode='packing', packing_threshold=packing_threshold)
 
     def get_allocation(self, throughputs, scale_factors, cluster_spec):
+        """
+        Get resource allocation using the SJF policy with packing mode.
+
+        Args:
+            throughputs (dict): Dictionary containing throughput information for each job.
+            scale_factors (dict): Dictionary containing scale factors for each job.
+            cluster_spec (dict): Dictionary representing the available resources in the cluster.
+
+        Returns:
+            dict: A dictionary representing the final allocation of resources for each job.
+
+        Note:
+            This method delegates the allocation process to the underlying SJF policy with
+            packing mode.
+        """
         return self._policy.get_allocation(throughputs, scale_factors, cluster_spec)
