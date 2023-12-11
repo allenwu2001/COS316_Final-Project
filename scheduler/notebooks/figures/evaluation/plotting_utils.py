@@ -1,6 +1,7 @@
 # Matplotlib imports.
 from matplotlib import pyplot as plt
-import matplotlib; matplotlib.font_manager._rebuild()
+import matplotlib.font_manager
+matplotlib.font_manager._load_fontmanager(try_read_cache=False)
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
